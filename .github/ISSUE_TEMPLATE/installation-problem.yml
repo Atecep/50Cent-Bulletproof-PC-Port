@@ -1,0 +1,45 @@
+name: Installation problem
+description: Report problems extracting, detecting the disc, preparing game code, or launching.
+title: "[Install] "
+body:
+  - type: markdown
+    attributes:
+      value: Include the exact error and a redacted log excerpt if available. Keep ISO images, XBEs, game files, generated code and saves out of attachments.
+  - type: input
+    id: package
+    attributes:
+      label: Port version and package filename
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: System and disc revision
+      description: Include your OS version, CPU, GPU and Vulkan driver. On Linux include the distribution and glibc version if known. Add the disc region or revision if known.
+    validations:
+      required: true
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Where the problem occurs
+      options:
+        - Extracting the archive
+        - Detecting or validating the disc
+        - Preparing the game code
+        - Starting the game after preparation
+        - Starting again with an existing cache
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps and error message
+      description: State whether the archive SHA-256 matched, the extraction directory was writable and the ISO was under assets/.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log excerpt
+      description: If userdata/logs/ exists, share a short excerpt with usernames and private paths redacted.
+      render: text

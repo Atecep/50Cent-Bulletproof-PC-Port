@@ -1,0 +1,55 @@
+# build
+/out/
+/build/
+*.zip
+*.pdb
+*.exe
+*.obj
+*.o
+
+# recompiled code, derived from the game
+/generated/
+*.so
+*.dll
+*.lib
+*.a
+*.tar.xz
+
+# user's own game files
+/assets/
+
+# runtime files
+settings.toml
+/logs/
+/hdd/
+/CrashDumps/
+
+# editors
+.vs/
+.vscode/
+.idea/
+
+# Local temporary folder
+.local
+/tools/git/
+/CMakeUserPresets.json
+
+# Disc images and game content must never be added, even outside assets/.
+*.iso
+*.xbe
+*.ark
+*.sfd
+*.ISO
+*.XBE
+*.ARK
+*.SFD
+*.xbx
+
+# Portable profiles, saves, dumps and Python caches
+userdata/
+__pycache__/
+*.dmp
+config/game.toml
+
+# GitHub funding metadata from upstream SDK
+/sdk/.github/FUNDING.yml

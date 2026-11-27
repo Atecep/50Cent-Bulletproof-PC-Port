@@ -1,0 +1,260 @@
+name: Portable builds and releases
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Portable build operation
+        type: choice
+        options: [build-only, build-and-draft-release]
+        default: build-only
+        required: true
+      version:
+        description: Required for a draft and must match the CMake version (for example v0.8.0)
+        type: string
+        required: false
+      windows_dxc:
+        description: Build DXC from pinned source or use the verified upstream ZIP
+        type: choice
+        options: [source, release-zip]
+        default: source
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portable-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      package: ${{ steps.mode.outputs.package }}
+      draft: ${{ steps.mode.outputs.draft }}
+      version: ${{ steps.mode.outputs.version }}
+      linux_archive: ${{ steps.mode.outputs.linux_archive }}
+      gnu_sources: ${{ steps.mode.outputs.gnu_sources }}
+      windows_archive: ${{ steps.mode.outputs.windows_archive }}
+      windows_dxc: ${{ steps.mode.outputs.windows_dxc }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Test the release policy
+        run: python3 -B -m unittest discover -s tools/ci -p 'test_*.py'
+      - id: mode
+        name: Check the operation, version and DXC input
+        env:
+          EVENT: ${{ github.event_name }}
+          OPERATION: ${{ inputs.operation }}
+          VERSION: ${{ inputs.version }}
+          WINDOWS_DXC: ${{ inputs.windows_dxc }}
+        run: python3 -B tools/ci/release_policy.py
+
+  linux-tests:
+    needs: plan
+    if: needs.plan.outputs.package != 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Fetch pinned dependency sources and build test image
+        run: |
+          python3 tools/ci/fetch_sources.py "$RUNNER_TEMP/bp-deps"
+          docker build --platform linux/amd64 -f tools/linux/Dockerfile.jammy -t bp-jammy tools/linux
+      - name: Run the 13 asset-free CTests
+        run: |
+          mkdir -p "$RUNNER_TEMP/bp-tests"
+          docker run --rm --network none --user "$(id -u):$(id -g)" -e HOME=/work \
+            -v "$GITHUB_WORKSPACE:/src:ro" -v "$RUNNER_TEMP/bp-tests:/work" \
+            -v "$RUNNER_TEMP/bp-deps:/deps:ro" bp-jammy bash /src/tools/ci/linux-tests.sh /work /deps
+
+  windows-tests:
+    needs: plan
+    if: needs.plan.outputs.package != 'true'
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Run the native save storage test
+        shell: pwsh
+        run: ./tools/ci/build-windows.ps1 -Work "$env:RUNNER_TEMP/bp-test" -TestOnly
+
+  linux-package:
+    needs: plan
+    if: needs.plan.outputs.package == 'true'
+    runs-on: ubuntu-24.04
+    environment: portable-build-inputs
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Fetch pinned dependency sources and build Jammy image
+        run: |
+          python3 tools/ci/fetch_sources.py "$RUNNER_TEMP/bp-deps"
+          docker build --platform linux/amd64 -f tools/linux/Dockerfile.jammy -t bp-jammy tools/linux
+      - name: Run the 13 asset-free CTests
+        run: |
+          mkdir -p "$RUNNER_TEMP/bp-tests"
+          docker run --rm --network none --user "$(id -u):$(id -g)" -e HOME=/work \
+            -v "$GITHUB_WORKSPACE:/src:ro" -v "$RUNNER_TEMP/bp-tests:/work" \
+            -v "$RUNNER_TEMP/bp-deps:/deps:ro" bp-jammy bash /src/tools/ci/linux-tests.sh /work /deps
+      - name: Validate the restricted title input
+        env:
+          BULLETPROOF_TITLE_TOML_B64: ${{ secrets.BULLETPROOF_TITLE_TOML_B64 }}
+          BULLETPROOF_TITLE_TOML_SHA256: ${{ vars.BULLETPROOF_TITLE_TOML_SHA256 }}
+        run: python3 tools/ci/write_title.py "$RUNNER_TEMP/bp-input/title.toml"
+      - name: Build, package and audit Linux
+        run: |
+          mkdir -p "$RUNNER_TEMP/bp-output"
+          docker run --rm --network none --user "$(id -u):$(id -g)" -e HOME=/work \
+            -v "$GITHUB_WORKSPACE:/src:ro" -v "$RUNNER_TEMP/bp-output:/work" \
+            -v "$RUNNER_TEMP/bp-input:/inputs:ro" -v "$RUNNER_TEMP/bp-deps:/deps:ro" \
+            bp-jammy bash -ec '
+              test ! -e /src/assets && test ! -e /src/config/game.toml && test ! -e /src/generated
+              bash /src/tools/linux/build_portable_jammy.sh /inputs/title.toml /work \
+                -DFETCHCONTENT_SOURCE_DIR_ZYDIS=/deps/zydis-src \
+                -DFETCHCONTENT_SOURCE_DIR_TOMLPLUSPLUS=/deps/tomlplusplus-src \
+                -DFETCHCONTENT_SOURCE_DIR_IMGUI=/deps/imgui-src \
+                -DFETCHCONTENT_SOURCE_DIR_SDL3=/deps/sdl3-src
+              test ! -e /work/build/generated
+              python3 /src/tools/ci/audit_package.py /work/Bulletproof-linux-x86_64.tar.xz --title /inputs/title.toml
+            '
+      - name: Verify and bundle the corresponding GNU sources
+        env:
+          ARCHIVE: ${{ needs.plan.outputs.linux_archive }}
+          GNU_SOURCES: ${{ needs.plan.outputs.gnu_sources }}
+        run: |
+          cd "$RUNNER_TEMP/bp-output"
+          if [ "$ARCHIVE" != Bulletproof-linux-x86_64.tar.xz ]; then
+            mv -- Bulletproof-linux-x86_64.tar.xz "$ARCHIVE"
+          fi
+          python3 "$GITHUB_WORKSPACE/tools/ci/bundle_gnu_sources.py" "$ARCHIVE" "$GNU_SOURCES"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: portable-linux
+          path: |
+            ${{ runner.temp }}/bp-output/${{ needs.plan.outputs.linux_archive }}
+            ${{ runner.temp }}/bp-output/${{ needs.plan.outputs.gnu_sources }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+
+  windows-package:
+    needs: plan
+    if: needs.plan.outputs.package == 'true'
+    runs-on: windows-2022
+    environment: portable-build-inputs
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12.12'
+      - name: Validate the restricted title input
+        shell: pwsh
+        env:
+          BULLETPROOF_TITLE_TOML_B64: ${{ secrets.BULLETPROOF_TITLE_TOML_B64 }}
+          BULLETPROOF_TITLE_TOML_SHA256: ${{ vars.BULLETPROOF_TITLE_TOML_SHA256 }}
+        run: python tools/ci/write_title.py "$env:RUNNER_TEMP/bp-input/title.toml"
+      - name: Build, test, package and audit Windows COFF
+        shell: pwsh
+        env:
+          WINDOWS_DXC: ${{ needs.plan.outputs.windows_dxc }}
+        run: |
+          foreach ($path in 'assets', 'config/game.toml', 'generated') {
+              if (Test-Path $path) { throw "Unexpected source input: $path" }
+          }
+          ./tools/ci/build-windows.ps1 -Work "$env:RUNNER_TEMP/bp-output" `
+              -Title "$env:RUNNER_TEMP/bp-input/title.toml" -DxcMode $env:WINDOWS_DXC
+      - name: Name the Windows archive
+        shell: pwsh
+        env:
+          ARCHIVE: ${{ needs.plan.outputs.windows_archive }}
+        run: |
+          if ($env:ARCHIVE -ne 'Bulletproof-windows-x86_64.zip') {
+              Rename-Item -LiteralPath "$env:RUNNER_TEMP/bp-output/dist/Bulletproof-windows-x86_64.zip" -NewName $env:ARCHIVE
+          }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: portable-windows
+          path: ${{ runner.temp }}/bp-output/dist/${{ needs.plan.outputs.windows_archive }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+
+  checksums:
+    needs: [plan, linux-package, windows-package]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: portable-*
+          merge-multiple: true
+          path: dist
+      - name: Hash the two portable archives and the corresponding source archive
+        working-directory: dist
+        env:
+          LINUX_ARCHIVE: ${{ needs.plan.outputs.linux_archive }}
+          WINDOWS_ARCHIVE: ${{ needs.plan.outputs.windows_archive }}
+          GNU_SOURCES: ${{ needs.plan.outputs.gnu_sources }}
+        run: sha256sum -- "$LINUX_ARCHIVE" "$WINDOWS_ARCHIVE" "$GNU_SOURCES" > SHA256SUMS.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-sha256
+          path: dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 3
+
+  draft-release:
+    needs: [plan, checksums]
+    if: github.event_name == 'workflow_dispatch' && needs.plan.outputs.draft == 'true'
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: draft-release-${{ needs.plan.outputs.version }}
+      cancel-in-progress: false
+    environment: draft-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: portable-*
+          merge-multiple: true
+          path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-sha256
+          path: dist
+      - name: Verify assets and create the draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          TARGET_SHA: ${{ github.sha }}
+          LINUX_ARCHIVE: ${{ needs.plan.outputs.linux_archive }}
+          WINDOWS_ARCHIVE: ${{ needs.plan.outputs.windows_archive }}
+          GNU_SOURCES: ${{ needs.plan.outputs.gnu_sources }}
+        working-directory: dist
+        run: |
+          sha256sum --check --strict SHA256SUMS.txt
+          tag=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$VERSION" --jq \
+            ".[] | select(.ref == \"refs/tags/$VERSION\") | .ref")
+          release=$(gh api --paginate "repos/$GH_REPO/releases" --jq \
+            ".[] | select(.tag_name == \"$VERSION\") | .id")
+          if [ -n "$tag" ] || [ -n "$release" ]; then
+            echo "The requested version already has a tag or GitHub release." >&2
+            exit 1
+          fi
+          gh release create "$VERSION" --draft --target "$TARGET_SHA" --title "$VERSION" \
+            --notes "Corresponding source for the bundled GNU runtime libraries is attached as \`$GNU_SOURCES\`." \
+            "$LINUX_ARCHIVE" "$WINDOWS_ARCHIVE" "$GNU_SOURCES" SHA256SUMS.txt

@@ -1,0 +1,7 @@
+#pragma once
+
+namespace bulletproof_metadata {
+inline constexpr char name[] = "@BULLETPROOF_PUBLIC_NAME@";
+inline constexpr wchar_t wide_name[] = L"@BULLETPROOF_PUBLIC_NAME@";
+inline constexpr char version[] = "v@PROJECT_VERSION@";
+}

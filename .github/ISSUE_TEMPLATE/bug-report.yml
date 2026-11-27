@@ -1,0 +1,40 @@
+name: Bug report
+description: Report a crash, gameplay defect, display issue, or regression.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: Search for an existing report first. Share only redacted diagnostic excerpts. Keep game files, generated guest code, saves and private settings out of attachments.
+  - type: input
+    id: version
+    attributes:
+      label: Port version or commit
+      placeholder: v0.8.0
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: System and settings
+      description: Include OS, CPU, GPU, driver version, input device and any relevant display settings.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the mission and checkpoint if relevant, and how often it happens.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log excerpt
+      description: Logs are under userdata/logs/. Redact usernames, paths and any private information.
+      render: text

@@ -1,0 +1,13 @@
+LIBRARY api-ms-win-crt-math-l1-1-0.dll
+EXPORTS
+    atan2
+    cos
+    exp2
+    fmod
+    frexp
+    ldexp
+    log2
+    sin
+    sqrt
+    sqrtf
+    tan

@@ -1,0 +1,61 @@
+FROM ubuntu:22.04@sha256:e0f80c829509ef4df9e76bd8944eb7b8ec25cbb379b112a7f9448b2c77a77c9b
+
+ARG BUILD_JOBS=6
+ARG UBUNTU_SNAPSHOT=20261126T000000Z
+RUN set -eux; \
+    for suite in jammy jammy-updates jammy-security; do \
+        printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s/ %s main universe\n' \
+            "$UBUNTU_SNAPSHOT" "$suite"; \
+    done > /etc/apt/sources.list; \
+    # Bootstrap the CA bundle from APT's signed archive metadata. \
+    apt-get -o Acquire::https::Verify-Peer=false update; \
+    apt-get -o Acquire::https::Verify-Peer=false install -y --no-install-recommends ca-certificates; \
+    apt-get install -y --no-install-recommends \
+        binutils clang-15 curl g++-12 git libasound2-dev libdbus-1-dev libegl1-mesa-dev \
+        libgl-dev libibus-1.0-dev libpipewire-0.3-dev libpulse-dev libudev-dev \
+        libvulkan-dev libwayland-dev libx11-dev libxcursor-dev libxext-dev libxi-dev \
+        libxinerama-dev libxkbcommon-dev libxrandr-dev libxss-dev libxtst-dev lld-15 ninja-build \
+        patchelf pkg-config python3 python3-numpy wayland-protocols xz-utils zlib1g-dev; \
+    rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/opt/cmake/cmake/data/bin:/usr/lib/llvm-15/bin:${PATH}"
+RUN set -eux; \
+    curl --fail --silent --show-error --location \
+        https://files.pythonhosted.org/packages/59/e8/096984b89133681533650b9078c5ed1c5c9b534e869b5487f22d4de1935c/cmake-3.31.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl \
+        --output /tmp/cmake.whl; \
+    echo '1c8b05df0602365da91ee6a3336fe57525b137706c4ab5675498f662ae1dbcec  /tmp/cmake.whl' | sha256sum -c -; \
+    python3 -m zipfile -e /tmp/cmake.whl /opt/cmake; \
+    chmod +x /opt/cmake/cmake/data/bin/*; \
+    rm /tmp/cmake.whl
+
+# glslang 16.1.0 and the compatible SPIRV-Tools/Headers from its known_good.json.
+RUN set -eux; \
+    glslang=b5782e52ee2f7b3e40bb9c80d15b47016e008bc9; \
+    tools=262bdab48146c937467f826699a40da0fdfc0f1a; \
+    headers=b824a462d4256d720bebb40e78b9eb8f78bbb305; \
+    fetch() { \
+        mkdir -p "$3"; \
+        curl --fail --silent --show-error --location --retry 3 \
+            "https://codeload.github.com/KhronosGroup/$1/tar.gz/$2" --output /tmp/shader-source.tar.gz; \
+        tar -xzf /tmp/shader-source.tar.gz --strip-components=1 -C "$3"; \
+    }; \
+    fetch glslang "$glslang" /tmp/glslang; \
+    fetch SPIRV-Tools "$tools" /tmp/glslang/External/spirv-tools; \
+    fetch SPIRV-Headers "$headers" /tmp/glslang/External/spirv-tools/external/spirv-headers; \
+    cmake -S /tmp/glslang -B /tmp/shader-build -G Ninja \
+        -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_FLAGS=-march=x86-64-v2 -DCMAKE_CXX_FLAGS=-march=x86-64-v2 \
+        -DCMAKE_INSTALL_PREFIX=/opt/shaders -DENABLE_HLSL=ON -DENABLE_OPT=ON \
+        -DENABLE_GLSLANG_BINARIES=OFF -DGLSLANG_TESTS=OFF \
+        -DSPIRV_SKIP_EXECUTABLES=ON -DSPIRV_SKIP_TESTS=ON; \
+    cmake --build /tmp/shader-build --parallel "$BUILD_JOBS"; \
+    cmake --install /tmp/shader-build; \
+    mkdir -p /opt/shader-notices; \
+    cp /tmp/glslang/LICENSE.txt /opt/shader-notices/glslang.txt; \
+    cp /tmp/glslang/External/spirv-tools/LICENSE /opt/shader-notices/SPIRV-Tools.txt; \
+    cp /tmp/glslang/External/spirv-tools/external/spirv-headers/LICENSE /opt/shader-notices/SPIRV-Headers.txt; \
+    printf 'https://github.com/KhronosGroup/glslang/tree/%s\nhttps://github.com/KhronosGroup/SPIRV-Tools/tree/%s\nhttps://github.com/KhronosGroup/SPIRV-Headers/tree/%s\n' \
+        "$glslang" "$tools" "$headers" > /opt/shader-notices/SOURCES.txt; \
+    rm -rf /tmp/glslang /tmp/shader-build /tmp/shader-source.tar.gz
+
+ENV CMAKE_PREFIX_PATH=/opt/shaders

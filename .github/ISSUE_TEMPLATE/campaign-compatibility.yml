@@ -1,0 +1,50 @@
+name: Campaign compatibility report
+description: Record a successful, partial, or blocked campaign run.
+title: "[Campaign] "
+body:
+  - type: markdown
+    attributes:
+      value: Report one mission or checkpoint per platform and build. Keep spoilers out of the title and game files and saves out of attachments.
+  - type: input
+    id: version
+    attributes:
+      label: Port version or commit
+    validations:
+      required: true
+  - type: input
+    id: mission
+    attributes:
+      label: Mission name or number and checkpoint
+      description: Use the in-game name or number and state whether you began a new run or loaded a checkpoint.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: System, settings and disc revision
+      description: Include OS, CPU, GPU, driver, input method and relevant display settings. Give the disc region or revision if known.
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Reached
+        - Completed
+        - Completed with issues
+        - Blocked
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Progress and checks
+      description: Give the furthest point reached. Record objectives, cutscenes, audio, controls, checkpoint save and reload, and the next mission transition. Mark unchecked items as Not tested.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Linked issues or redacted evidence
+      description: Include reproduction steps and a short log excerpt if the run was blocked.
