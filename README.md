@@ -1,18 +1,13 @@
 # 50 Cent: Bulletproof PC Port
 
-!\[50 Cent: Bulletproof PC Port\](docs/images/cover.png)
+![50 Cent: Bulletproof PC Port](docs/images/cover.png)
 
-!\[Windows\](https://img.shields.io/badge/Windows-Supported-3b82f6?style=for-the-badge)
-
-!\[Linux\](https://img.shields.io/badge/Linux-Supported-4b5563?style=for-the-badge)
-
-!\[Vulkan\](https://img.shields.io/badge/Vulkan-Renderer-b91c1c?style=for-the-badge)
-
-!\[4K\](https://img.shields.io/badge/4K-Supported-525252?style=for-the-badge)
-
-!\[120 FPS\](https://img.shields.io/badge/120\_FPS-Supported-15803d?style=for-the-badge)
-
-!\[MIT License\](https://img.shields.io/badge/License-MIT-7c3aed?style=for-the-badge)
+![Windows](https://img.shields.io/badge/Windows-3b82f6?style=flat-square)
+![Linux](https://img.shields.io/badge/Linux-4b5563?style=flat-square)
+![Vulkan](https://img.shields.io/badge/Vulkan-b91c1c?style=flat-square)
+![4K](https://img.shields.io/badge/4K-525252?style=flat-square)
+![120 FPS](https://img.shields.io/badge/120%20FPS-15803d?style=flat-square)
+![MIT License](https://img.shields.io/badge/MIT%20License-7c3aed?style=flat-square)
 
 Play *50 Cent: Bulletproof* on modern PCs with **4K resolution, up to 120 FPS, widescreen support and mouse and keyboard controls**.
 
@@ -31,7 +26,7 @@ An unofficial native PC port of the original Xbox game for Windows and Linux, po
 - **Automatic recompilation:** Game code is prepared automatically on first launch.
 - **Portable and offline:** No installer, external compiler or internet connection required to play.
 
-!\[Gameplay screenshot\](docs/images/gameplay.png)
+![Gameplay screenshot](docs/images/gameplay.png)
 
 ## Supported resolutions
 
