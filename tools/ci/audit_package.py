@@ -75,6 +75,10 @@ def validate(archive_path, title, llvm_readobj, coff_dir=None, source_dxc=None):
             name = raw[len(prefix):].rstrip("/")
             is_dir = item.is_dir() if windows else item.isdir()
             if is_dir:
+                if name == "assets" and windows and (
+                    item.file_size or stat.S_IFMT(item.external_attr >> 16) not in (0, stat.S_IFDIR)
+                ):
+                    raise ValueError("Expected an empty directory entry for assets/")
                 dirs.add(name)
                 continue
             if windows:
@@ -84,11 +88,13 @@ def validate(archive_path, title, llvm_readobj, coff_dir=None, source_dxc=None):
                 raise ValueError(f"Unexpected tar member type: {name}")
             files[name] = item
 
-        missing = required - files.keys()
-        if missing or "assets" not in dirs:
-            raise ValueError(f"Missing required package entries: {sorted(missing)}")
-        if any(directory.startswith("assets/") for directory in dirs):
+        if "assets" not in dirs:
+            raise ValueError(f"Missing explicit assets/ directory entry (expected {prefix}assets/)")
+        if any(name.startswith("assets/") for name in dirs | files.keys()):
             raise ValueError("The assets directory must be empty")
+        missing = required - files.keys()
+        if missing:
+            raise ValueError(f"Missing required package entries: {sorted(missing)}")
         if source_dxc:
             if "dxil.dll" in files:
                 raise ValueError("The source-built DXC route must not stage a separate dxil.dll")

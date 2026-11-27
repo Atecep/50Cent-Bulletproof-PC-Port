@@ -141,6 +141,19 @@ def add_provenance(notices, stage, provenance, shader_notices):
     shutil.copytree(shader_notices, notices / "Shaders")
 
 
+def write_archive(stage, archive, epoch):
+    assets = stage / "assets"
+    if not assets.is_dir() or assets.is_symlink() or any(assets.iterdir()):
+        raise RuntimeError("The staged assets directory must exist and be empty")
+    # Pass each top-level entry to tar so the empty assets directory has its own header.
+    entries = [entry.relative_to(stage.parent) for entry in sorted(stage.iterdir())]
+    subprocess.run(["tar", "--sort=name", "--format=gnu", f"--mtime=@{epoch}", "--owner=0", "--group=0",
+                    "--numeric-owner", "-I", "xz -T1 -6", "-cf", archive, "-C", stage.parent,
+                    "--no-recursion", stage.name, "--recursion", *entries],
+                   check=True, env={**os.environ, "LC_ALL": "C", "TAR_OPTIONS": "",
+                                    "XZ_OPT": "", "XZ_DEFAULTS": ""})
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("build", type=Path)
@@ -237,9 +250,7 @@ def main():
         shutil.copyfile(ROOT / "tools/linux/PORTABLE_README.txt", stage / "README.txt")
 
         temporary_archive = temp / "package.tar.xz"
-        subprocess.run(["tar", "--sort=name", "--format=gnu", f"--mtime=@{epoch}", "--owner=0", "--group=0",
-                        "--numeric-owner", "-I", "xz -T1 -6", "-cf", temporary_archive, "-C", temp, "Bulletproof"],
-                       check=True, env={**os.environ, "LC_ALL": "C", "XZ_OPT": "", "XZ_DEFAULTS": ""})
+        write_archive(stage, temporary_archive, epoch)
         os.replace(temporary_archive, archive)
 
 

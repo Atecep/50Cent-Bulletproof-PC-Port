@@ -137,11 +137,11 @@ $identity = foreach ($entry in $entries.GetEnumerator()) {
     }
 }
 $generated = @{
-    'assets/' = ''
     'README.txt' = $readme + "`n"
     'LICENSES/PROVENANCE.txt' = $provenance + "`n`n$linkProvenance`n`n" + ($identity -join "`n") + "`n"
 }
 foreach ($name in $generated.Keys) { $entries.Add($name, '') }
+$entries.Add('assets/', '')
 
 $destination = (New-Item -ItemType Directory -Path $OutputDirectory -Force).FullName
 $output = Join-Path $destination 'Bulletproof-windows-x86_64-internal.zip'
@@ -155,7 +155,11 @@ try {
             foreach ($entry in $entries.GetEnumerator()) {
                 $member = $zip.CreateEntry($entry.Key, [IO.Compression.CompressionLevel]::Optimal)
                 $member.LastWriteTime = $timestamp
-                if ($entry.Key.EndsWith('/')) { continue }
+                if ($entry.Key -eq 'assets/') {
+                    # Mark the empty directory for both Unix and Windows extractors.
+                    $member.ExternalAttributes = (0x41ED -shl 16) -bor 0x10
+                    continue
+                }
                 $writer = $member.Open()
                 try {
                     if ($generated.ContainsKey($entry.Key)) {
