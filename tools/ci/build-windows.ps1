@@ -18,7 +18,7 @@ $vs = & $vswhere -latest -products '*' -version '[17.0,18.0)' -requires Microsof
 if (!$vs) { throw 'Visual Studio 2022 x64 build tools are required.' }
 $setup = "$Work/setup-msvc.cmd"
 @"
-@call "$vs\VC\Auxiliary\Build\vcvars64.bat" 10.0.26100.0 -vcvars_ver=14.44.35207 >nul
+@call "$vs\VC\Auxiliary\Build\vcvars64.bat" 10.0.26100.0 -vcvars_ver=14.44 >nul
 @if errorlevel 1 exit /b 1
 @set
 "@ | Set-Content -Encoding ascii $setup
@@ -32,8 +32,10 @@ try {
 } finally {
     Pop-Location
 }
-if ($env:VCToolsVersion.TrimEnd('\') -ne '14.44.35207' -or $env:WindowsSDKVersion.TrimEnd('\') -ne '10.0.26100.0') {
-    throw 'The runner image must provide MSVC 14.44.35207 and Windows SDK 10.0.26100.0.'
+$msvcVersion = [version]($env:VCToolsVersion.TrimEnd('\'))
+$sdkVersion = $env:WindowsSDKVersion.TrimEnd('\')
+if ($msvcVersion.Major -ne 14 -or $msvcVersion.Minor -ne 44 -or $sdkVersion -ne '10.0.26100.0') {
+    throw 'The runner image must provide MSVC 14.44 and Windows SDK 10.0.26100.0.'
 }
 
 $llvm = "$env:ProgramFiles/LLVM/bin"
@@ -42,6 +44,25 @@ $clangVersion = (& "$llvm/clang.exe" --version | Select-Object -First 1)
 if ($clangVersion -notmatch 'clang version 20\.1\.8\b' -or (& "$llvm/lld-link.exe" --version) -notmatch '\b20\.1\.8\b') {
     throw 'The runner image must provide LLVM / LLD 20.1.8.'
 }
+if (!$TestOnly) {
+    if (!$Title -or !(Test-Path -LiteralPath $Title -PathType Leaf)) { throw 'Verified title metadata is required.' }
+    $cmakeVersion = cmake --version | Select-Object -First 1
+    $ninjaVersion = ninja --version
+    if ($cmakeVersion -ne 'cmake version 3.31.6' -or $ninjaVersion -ne '1.13.2') {
+        throw 'The runner image must provide CMake 3.31.6 and Ninja 1.13.2.'
+    }
+    if (!$env:VCToolsRedistDir) { throw 'The Visual Studio x64 redistributable directory is required.' }
+    $redist = Join-Path $env:VCToolsRedistDir 'x64/Microsoft.VC143.CRT'
+    $crtVersions = foreach ($dll in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
+        $info = (Get-Item -LiteralPath "$redist/$dll").VersionInfo
+        $version = [version]::new($info.FileMajorPart, $info.FileMinorPart, $info.FileBuildPart, $info.FilePrivatePart)
+        if ($version.Major -ne 14 -or $version -lt [version]'14.44.35211.0') {
+            throw "Unsupported app-local Visual C++ release CRT version in ${dll}: $version"
+        }
+        "$dll $version"
+    }
+}
+
 $runtime = "$root/sdk/linux/runtime"
 Push-Location $Work
 try {
@@ -54,10 +75,6 @@ try {
 }
 if ($TestOnly) { return }
 
-if (!$Title -or !(Test-Path -LiteralPath $Title -PathType Leaf)) { throw 'Verified title metadata is required.' }
-if ((cmake --version | Select-Object -First 1) -ne 'cmake version 3.31.6' -or (ninja --version) -ne '1.13.2') {
-    throw 'The runner image must provide CMake 3.31.6 and Ninja 1.13.2.'
-}
 $deps = "$Work/deps"
 python "$PSScriptRoot/fetch_sources.py" $deps --windows
 $dxcLicense = "$Work/dxc-licenses.txt"
@@ -98,12 +115,6 @@ cmake --preset release -S $root -B $build -DBULLETPROOF_PORTABLE_ONLY=ON `
 cmake --build $build --target Bulletproof_portable xbe_recomp --parallel 4
 if (Test-Path "$build/generated") { throw 'Unexpected guest translations in portable build.' }
 
-$redist = Join-Path $env:VCToolsRedistDir 'x64/Microsoft.VC143.CRT'
-foreach ($dll in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
-    if ((Get-Item "$redist/$dll").VersionInfo.FileVersion -ne '14.44.35211.0') {
-        throw "Unexpected app-local release CRT version in $dll"
-    }
-}
 $llvmNotice = "$Work/llvm-LICENSE.txt"
 $llvmLicenseUrl = 'https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-20.1.8/llvm/LICENSE.TXT'
 Invoke-WebRequest $llvmLicenseUrl -OutFile $llvmNotice
@@ -115,10 +126,10 @@ $provenance = "$Work/build-inputs.txt"
 LLVM 20.1.8 ($clangVersion)
 LLVM notice: $llvmLicenseUrl
 GitHub runner image: $env:ImageOS $env:ImageVersion
-MSVC 14.44.35207, Windows SDK 10.0.26100.0
-Visual Studio 2022 x64 VC143 REDIST 14.44.35211.0
+MSVC $msvcVersion, Windows SDK $sdkVersion
+Visual Studio 2022 x64 VC143 REDIST: $($crtVersions -join ", ")
 REDIST terms: https://learn.microsoft.com/visualstudio/releases/2022/redistribution#visual-c-runtime-files
-CMake 3.31.6, Ninja 1.13.2
+$cmakeVersion, Ninja $ninjaVersion
 $dxcProvenance
 Vulkan-Headers: https://github.com/KhronosGroup/Vulkan-Headers/tree/b379292b2ab6df5771ba9870d53cf8b2c9295daf
 Vulkan import library (build only): https://github.com/KhronosGroup/Vulkan-Loader/tree/f8616928ee19f6c7fd648c1cf1f456cba3771855
